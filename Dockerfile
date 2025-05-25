@@ -1,15 +1,14 @@
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
-    build-essential git wget libssl-dev libevent-dev libpcre3-dev zlib1g-dev ca-certificates \
+    build-essential git wget libssl-dev libevent-dev libpcre3-dev zlib1g-dev ca-certificates pkg-config libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth=1 https://github.com/TelegramMessenger/MTProxy.git /mtproxy
 
 WORKDIR /mtproxy
 
-# Build với chế độ debug (hiện câu lệnh và lỗi)
-RUN set -ex && make
+RUN set -ex && make objs/bin/mtproto-proxy
 
 COPY proxy-secret /mtproxy/proxy-secret
 COPY proxy-multi.conf /mtproxy/proxy-multi.conf
