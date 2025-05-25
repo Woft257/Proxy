@@ -1,26 +1,46 @@
-# Dockerfile hoàn chỉnh cho MTProxy trên Fly.io
+# Dockerfile tối ưu cho MTProxy trên Fly.io với fix lỗi PCLMULQDQ
+FROM ubuntu:22.04 AS builder
 
-FROM ubuntu:22.04
-
-# Cài đặt build tools và thư viện cần thiết
+# Cài đặt các phụ thuộc build với công cụ tối ưu
 RUN apt-get update && apt-get install -y \
     build-essential git wget libssl-dev libevent-dev libpcre3-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone source MTProxy mới nhất
-RUN git clone --depth=1 https://github.com/TelegramMessenger/MTProxy.git /mtproxy
+# Clone source MTProxy với shallow clone
+RUN git clone --depth=1 --branch master https://github.com/TelegramMessenger/MTProxy.git /mtproxy
 
 WORKDIR /mtproxy
 
-# Build MTProxy với CFLAGS thêm -fcommon để fix lỗi multiple definitions
-RUN make CFLAGS="-fcommon" objs/bin/mtproto-proxy
+# Build với các cờ tối ưu hóa CPU và fix lỗi
+RUN make CFLAGS="-fcommon -mpclmul -msse2 -msse4.2 -maes -O3" objs/bin/mtproto-proxy
 
-# Expose port proxy dùng (thường là 8888)
-EXPOSE 8888
+# --------------------------------------------
+# Giai đoạn runtime tối ưu
+FROM ubuntu:22.04
 
-# Copy các file cấu hình, secret (bạn cần tạo 2 file này cùng folder với Dockerfile)
-COPY proxy-secret /mtproxy/proxy-secret
-COPY proxy-multi.conf /mtproxy/proxy-multi.conf
+# Cài đặt runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libssl3 libevent-2.1-7 libpcre3 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
 
-# Chạy proxy với các tham số tiêu chuẩn
-CMD ["./objs/bin/mtproto-proxy", "-u", "nobody", "-p", "8888", "-H", "8888", "-S", "8f488ba3563ea55f982af9746fb950f2", "--aes-pwd", "proxy-secret", "proxy-multi.conf", "-M", "1"]
+# Copy binary từ giai đoạn builder
+COPY --from=builder /mtproxy/objs/bin/mtproto-proxy /usr/local/bin/
+
+# Thư mục làm việc và cấu hình
+WORKDIR /config
+COPY proxy-secret proxy-multi.conf ./
+
+# Port mặc định và healthcheck
+EXPOSE 8888 443
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD curl -f http://localhost:8888/ || exit 1
+
+# Lệnh khởi chạy với biến môi trường
+CMD ["mtproto-proxy", \
+    "-u", "nobody", \
+    "-p", "8888", \
+    "-H", "443", \
+    "-S", "${SECRET}", \
+    "--aes-pwd", "proxy-secret", \
+    "proxy-multi.conf", \
+    "-M", "1"]
